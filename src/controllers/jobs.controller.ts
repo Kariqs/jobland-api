@@ -4,20 +4,16 @@ import { JSearchService } from "../services/jsearch.services";
 export class JobsController {
   static async getJobs(req: Request, res: Response) {
     try {
-      const { query = "software engineer", page = "1" } = req.query;
+      const query = (req.query.query as string) || "software engineer remote";
+      const page = (req.query.page as string) || "1";
 
-      if (typeof query !== "string") {
-        return res
-          .status(400)
-          .json({ error: "Query parameter must be a string" });
-      }
-
-      const jobs = await JSearchService.searchJobs(query, page as string);
+      const jobs = await JSearchService.searchJobs(query, page);
 
       res.json({
         success: true,
         count: jobs.length,
         jobs,
+        hasMore: jobs.length === 6,
       });
     } catch (error) {
       console.error(error);
