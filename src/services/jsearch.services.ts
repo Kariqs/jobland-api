@@ -21,7 +21,7 @@ export class JSearchService {
             query,
             page,
             num_pages: "1",
-            date_posted: "3days", // ← Jobs from the last 3 days
+            date_posted: "3days",
           },
           headers: {
             "X-RapidAPI-Key": RAPIDAPI_KEY,
@@ -31,7 +31,11 @@ export class JSearchService {
       );
 
       const rawJobs = response.data.data || [];
-      return rawJobs.map(JSearchService.transformJob);
+      const transformed = rawJobs.map(JSearchService.transformJob);
+
+      transformed.sort((a, b) => b.postedTimestamp - a.postedTimestamp);
+
+      return transformed;
     } catch (error) {
       console.error("JSearch API error:", error);
       throw new Error("Failed to fetch jobs from JSearch");
@@ -77,6 +81,7 @@ export class JSearchService {
       title: raw.job_title?.trim() || "Untitled Position",
       company: raw.employer_name?.trim() || "Unknown Company",
       postedTime,
+      postedTimestamp: postedDate.getTime(),
       locationType: JSearchService.determineLocationType(raw),
       visaStatus: JSearchService.guessVisaStatus(raw.job_description || ""),
       source,
