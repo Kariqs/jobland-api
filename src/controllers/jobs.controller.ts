@@ -1,10 +1,12 @@
-import { Request, Response } from "express";
+import { Response } from "express";
+import { AuthenticatedRequest } from "../middlewares/auth.middleware";
 import { JSearchService } from "../services/jsearch.services";
 
 export class JobsController {
-  static async getJobs(req: Request, res: Response) {
+  static async getJobs(req: AuthenticatedRequest, res: Response) {
     try {
-      const query = (req.query.query as string) || "software engineer remote";
+      const defaultQuery = `${req.user?.profession}`;
+      const query = (req.query.query as string) || defaultQuery;
       const page = (req.query.page as string) || "1";
 
       const jobs = await JSearchService.searchJobs(query, page);
