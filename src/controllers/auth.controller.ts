@@ -18,6 +18,30 @@ export class AuthController {
     }
   }
 
+  static async activateAccount(req: Request, res: Response) {
+    try {
+      const { email, token } = req.body;
+
+      if (!email || !token) {
+        return res.status(400).json({
+          success: false,
+          message: "Email and token are required",
+        });
+      }
+
+      await AuthService.activateAccount(email, token);
+
+      return res.status(200).json({
+        message: "Account Activated Successfully.",
+      });
+    } catch (error: any) {
+      return res.status(401).json({
+        success: false,
+        message: error.message || "Activation failed",
+      });
+    }
+  }
+
   static async login(req: Request, res: Response) {
     try {
       const { email, password } = req.body;
