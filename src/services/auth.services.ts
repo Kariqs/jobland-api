@@ -1,7 +1,7 @@
 import User from "../models/user.model";
 import bcrypt from "bcryptjs";
 import jwt from "jsonwebtoken";
-import { generateToken } from "../utils/jwt.util";
+import { generateToken } from "../utils/jwt";
 import { JwtPayload } from "../types/auth.types";
 import { sendEmail } from "../utils/send.email.util";
 import crypto from "node:crypto";
@@ -50,8 +50,7 @@ export class AuthService {
 
     return {
       userId: user._id.toString(),
-      message:
-        "User has been created successfully. Check your email for account activation before logging in.",
+      message: "User has been created successfully. Proceed to login.",
     };
   }
 
@@ -87,9 +86,9 @@ export class AuthService {
     if (!user) {
       throw new Error("Invalid email or password");
     }
-    if (!user.accountActivated) {
-      throw new Error("Account is not activated");
-    }
+    // if (!user.accountActivated) {
+    //   throw new Error("Account is not activated");
+    // }
     const isMatch = await bcrypt.compare(password, user.password);
     if (!isMatch) {
       throw new Error("Invalid email or password");
