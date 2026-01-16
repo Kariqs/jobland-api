@@ -5,7 +5,7 @@
   "main": "index.js",
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1",
-    "dev": "node -r dotenv/config node_modules/ts-node-dev/lib/bin.js --respawn --transpile-only src/index.ts",
+    "dev": "ts-node-dev --respawn --transpile-only src/index.ts",
     "build": "tsc",
     "start": "node dist/index.js"
   },
@@ -21,7 +21,7 @@
     "jsonwebtoken": "^9.0.2",
     "mailgen": "^2.0.32",
     "mongoose": "^8.19.2",
-    "nodemailer": "^7.0.12"
+    "resend": "^6.7.0"
   },
   "devDependencies": {
     "@types/axios": "^0.9.36",

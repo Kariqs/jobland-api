@@ -1,8 +1,10 @@
-import nodemailer from "nodemailer";
+import { Resend } from "resend";
 import Mailgen from "mailgen";
 import dotenv from "dotenv";
 
 dotenv.config();
+
+const resend = new Resend(process.env.RESEND_API_KEY);
 
 interface MailAction {
   instructions: string;
@@ -20,21 +22,14 @@ export const sendEmail = async (
   action?: MailAction
 ): Promise<void> => {
   try {
-    const transporter = nodemailer.createTransport({
-      service: "gmail",
-      auth: {
-        user: process.env.EMAIL,
-        pass: process.env.PASSWORD,
-      },
-    });
-
     const mailGenerator = new Mailgen({
       theme: "default",
       product: {
         name: "JoblandsAI",
-        link: `${process.env.FRONTEND_URL}`,
+        link: process.env.FRONTEND_URL!,
       },
     });
+
     const emailContent = {
       body: {
         name,
@@ -43,18 +38,23 @@ export const sendEmail = async (
         outro: "Have a great time finding your career breakthrough.",
       },
     };
+
     const html = mailGenerator.generate(emailContent);
-    const message = {
-      from: process.env.EMAIL,
+
+    const response = await resend.emails.send({
+      from: process.env.EMAIL_FROM!,
       to: email,
       subject,
       html,
-    };
+    });
 
-    await transporter.sendMail(message);
+    console.log(process.env.RESEND_API_KEY);
 
-    console.log(`Sign-up email sent successfully to ${email}`);
+    console.log("Resend response:", response);
+
+    console.log(`Email sent successfully to ${email}`);
   } catch (error) {
-    console.error("Failed to send sign-up email:", error);
+    console.error("Failed to send email:", error);
+    throw new Error("Email delivery failed");
   }
 };
