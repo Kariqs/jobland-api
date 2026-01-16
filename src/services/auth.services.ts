@@ -33,20 +33,20 @@ export class AuthService {
       activationKey: activationToken,
     });
 
-    await sendEmail(
-      user.email,
-      user.fullName,
-      "We're very excited to hev you on board!",
-      "Welcome to JoblandsAI",
-      {
-        instructions:
-          "To get started, please confirm your email by clicking the link below:",
-        button: {
-          text: "Confirm Email",
-          link: `${process.env.FRONTEND_URL}/activate?email=${user.email}&token=${user.activationKey}`,
-        },
-      }
-    );
+    // await sendEmail(
+    //   user.email,
+    //   user.fullName,
+    //   "We're very excited to hev you on board!",
+    //   "Welcome to JoblandsAI",
+    //   {
+    //     instructions:
+    //       "To get started, please confirm your email by clicking the link below:",
+    //     button: {
+    //       text: "Confirm Email",
+    //       link: `${process.env.FRONTEND_URL}/activate?email=${user.email}&token=${user.activationKey}`,
+    //     },
+    //   }
+    // );
 
     return {
       userId: user._id.toString(),
