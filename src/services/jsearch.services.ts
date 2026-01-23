@@ -21,7 +21,7 @@ export class JSearchService {
             query,
             page,
             num_pages: "1",
-            date_posted: "3days",
+            date_posted: "today",
           },
           headers: {
             "X-RapidAPI-Key": RAPIDAPI_KEY,

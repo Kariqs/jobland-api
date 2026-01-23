@@ -1,8 +1,30 @@
-import { Response } from "express";
+import { Request, Response } from "express";
 import { AuthenticatedRequest } from "../middlewares/auth.middleware";
 import { JSearchService } from "../services/jsearch.services";
 
 export class JobsController {
+  static async getTeaserJobs(req: Request, res: Response) {
+    try {
+      const query = "software developer";
+      const page = "1";
+
+      const jobs = await JSearchService.searchJobs(query, page);
+
+      res.json({
+        success: true,
+        count: jobs.length,
+        jobs,
+        hasMore: jobs.length === 6,
+      });
+    } catch (error) {
+      console.error(error);
+      res.status(500).json({
+        success: false,
+        error: "Failed to fetch jobs",
+      });
+    }
+  }
+
   static async getJobs(req: AuthenticatedRequest, res: Response) {
     try {
       const defaultQuery = `${req.user?.profession}`;

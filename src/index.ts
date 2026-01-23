@@ -1,11 +1,9 @@
+import "./config/env.config";
 import express from "express";
 import cors from "cors";
-import dotenv from "dotenv";
 import authRoutes from "./routes/auth.routes";
 import jobsRouter from "./routes/jobs.routes";
 import connectDB from "./config/db.config";
-
-dotenv.config();
 
 const app = express();
 const PORT = process.env.PORT || 3001;
