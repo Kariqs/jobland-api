@@ -1,8 +1,5 @@
 import { Resend } from "resend";
 import Mailgen from "mailgen";
-import dotenv from "dotenv";
-
-dotenv.config();
 
 const resend = new Resend(process.env.RESEND_API_KEY);
 
