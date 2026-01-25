@@ -1,3 +1,5 @@
+import { Types } from "mongoose";
+
 export interface FrontendJob {
   id: string;
   title: string;
@@ -9,6 +11,15 @@ export interface FrontendJob {
   source: string;
   applyUrl: string;
   applied: boolean;
+}
+
+export interface Job {
+  userId: Types.ObjectId;
+  jobId: string;
+  title: string;
+  company: string;
+  locationType: "Remote" | "Hybrid" | "Onsite" | "Unknown";
+  source: string;
 }
 
 export interface JSearchJob {
