@@ -250,3 +250,91 @@ export const getResumesByUserId = async (
     res.status(500).json({ error: "Server error during fetching resumes" });
   }
 };
+
+export const getResumeByUserAndResumeId = async (
+  req: AuthenticatedRequest,
+  res: Response,
+) => {
+  try {
+    const userId = req.user?._id;
+    const resumeId = req.params.id;
+
+    if (!userId) {
+      return res.status(401).json({ error: "Authentication required" });
+    }
+
+    if (!resumeId) {
+      return res.status(400).json({ error: "Resume ID is required" });
+    }
+
+    const resume = await Resume.findOne({
+      _id: resumeId,
+      userId,
+    }).select("_id title originalFileName createdAt extractedContent");
+
+    if (!resume) {
+      return res.status(404).json({ error: "Resume not found" });
+    }
+
+    res.status(200).json({
+      message: "Resume fetched successfully.",
+      resume,
+    });
+  } catch (err) {
+    console.error("[getResumeByUserAndResumeId] Error:", err);
+    res.status(500).json({ error: "Server error during fetching resume" });
+  }
+};
+
+export const updateResumeByUserAndResumeId = async (
+  req: AuthenticatedRequest,
+  res: Response,
+) => {
+  try {
+    const userId = req.user?._id;
+    const resumeId = req.params.id;
+
+    if (!userId) {
+      return res.status(401).json({ error: "Authentication required" });
+    }
+
+    if (!resumeId) {
+      return res.status(400).json({ error: "Resume ID is required" });
+    }
+
+    const { title, extractedContent } = req.body;
+
+    if (!title || !extractedContent) {
+      return res.status(400).json({
+        error: "Full resume payload (title + extractedContent) is required",
+      });
+    }
+
+    const updatedResume = await Resume.findOneAndUpdate(
+      { _id: resumeId, userId },
+      {
+        $set: {
+          title,
+          extractedContent,
+        },
+      },
+      {
+        new: true,
+        overwrite: false,
+        runValidators: true,
+      },
+    ).select("_id title originalFileName createdAt updatedAt extractedContent");
+
+    if (!updatedResume) {
+      return res.status(404).json({ error: "Resume not found" });
+    }
+
+    res.status(200).json({
+      message: "Resume replaced successfully.",
+      resumeId: updatedResume._id,
+    });
+  } catch (err) {
+    console.error("[replaceResumeByUserAndResumeId] Error:", err);
+    res.status(500).json({ error: "Server error during replacing resume" });
+  }
+};
