@@ -3,6 +3,7 @@ import { authenticate } from "../middlewares/auth.middleware";
 import {
   getResumeByUserAndResumeId,
   getResumesByUserId,
+  tailorResume,
   updateResumeByUserAndResumeId,
   uploadResume,
 } from "../controllers/resume.controller";
@@ -13,5 +14,6 @@ router.post("/upload-resume", authenticate, uploadResume);
 router.get("/get-resumes", authenticate, getResumesByUserId);
 router.get("/get-resume/:id", authenticate, getResumeByUserAndResumeId);
 router.put("/update-resume/:id", authenticate, updateResumeByUserAndResumeId);
+router.post("/tailor-resume", authenticate, tailorResume);
 
 export default router;
