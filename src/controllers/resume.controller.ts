@@ -154,19 +154,9 @@ export const uploadResume = [
       if (!req.file)
         return res.status(400).json({ error: "PDF resume file is required" });
 
-      console.log("File size:", req.file.buffer.length);
-      console.log("Filename:", req.file.originalname);
-      console.log("Mimetype:", req.file.mimetype);
-
-      //PDF parsing
       const parser = new PDFParse({ data: req.file.buffer });
       const result = await parser.getText();
       const rawText = result.text.trim();
-      const pages = result.total;
-
-      console.log(
-        `pdf-parse v2 extracted ${rawText.length} chars from ${pages} pages`,
-      );
 
       if (rawText.length < 50) {
         return res.status(400).json({
@@ -189,6 +179,10 @@ export const uploadResume = [
           error: "Could not extract usable resume data.",
         });
       }
+
+      const resumeExists = await Resume.findOne({ title: title });
+      if (resumeExists)
+        return res.status(400).json({ error: "PDF resume file is required" });
 
       //SAVE
       const resume = new Resume({
@@ -336,5 +330,201 @@ export const updateResumeByUserAndResumeId = async (
   } catch (err) {
     console.error("[replaceResumeByUserAndResumeId] Error:", err);
     res.status(500).json({ error: "Server error during replacing resume" });
+  }
+};
+
+const TAILOR_SYSTEM_PROMPT = `
+You are an expert professional resume tailor and career coach.
+
+Task: Tailor the given resume to the job description while being 100% truthful to the original content.
+
+Requirements:
+- Output ONLY valid JSON. No explanations, no markdown, no extra text.
+- Follow the exact schema structure provided (do not add or remove keys).
+- Prioritize experiences, projects, and skills that match the job requirements.
+- Rephrase bullet points to include keywords and phrases from the job description naturally.
+- Reorder bullet points and experience entries so the most relevant content appears first.
+- Strengthen the professionalSummary to directly address the target role and key requirements.
+- Move less relevant content to the bottom or keep it minimal.
+- Do NOT fabricate any new experiences, skills, degrees, or achievements.
+- Preserve all original dates exactly as strings.
+- Keep descriptions concise, impactful, and achievement-oriented.
+
+Return the full tailored resume using this exact schema:
+{
+  "personalInfo": { ... },
+  "professionalSummary": string | null,
+  "experience": [...],
+  "education": [...],
+  "skills": string[],
+  "certifications": [...],
+  "projects": [...],
+  "languages": [...]
+}
+`;
+
+async function tailorResumeWithGPT(
+  originalContent: IResumeContent,
+  jobDescription: string,
+): Promise<IResumeContent> {
+  const response = await axios.post<OpenAIChatCompletionResponse>(
+    "https://api.openai.com/v1/chat/completions",
+    {
+      model: "gpt-4o-mini", // or "gpt-4o" for better quality
+      messages: [
+        { role: "system", content: TAILOR_SYSTEM_PROMPT },
+        {
+          role: "user",
+          content: `Original Resume (JSON):\n${JSON.stringify(originalContent, null, 2)}\n\nJob Description:\n"""\n${jobDescription}\n"""\n\nTailor the resume to this job. Return only the JSON.`,
+        },
+      ],
+      temperature: 0.1,
+      max_tokens: 6000,
+    },
+    {
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${process.env.OPENAI_API_KEY}`,
+      },
+      timeout: 45000,
+    },
+  );
+
+  const content = response.data.choices[0]?.message?.content?.trim();
+  if (!content) throw new Error("No content returned from OpenAI");
+
+  // Clean possible markdown/code fences
+  const cleaned = content.replace(/```json|```/g, "").trim();
+  return JSON.parse(cleaned) as IResumeContent;
+}
+
+// ──────────────────────────────────────────────────────────────
+// Controller
+// ──────────────────────────────────────────────────────────────
+export const tailorResume = async (
+  req: AuthenticatedRequest,
+  res: Response,
+) => {
+  try {
+    const userId = req.user?._id;
+    const { resumeTitle, jobDescription, targetTitle } = req.body;
+
+    if (!userId)
+      return res.status(401).json({ error: "Authentication required" });
+    if (!resumeTitle?.trim())
+      return res.status(400).json({ error: "resumeTitle is required" });
+    if (!jobDescription?.trim() || jobDescription.trim().length < 50) {
+      return res.status(400).json({
+        error: "A meaningful job description is required (min 50 characters)",
+      });
+    }
+
+    // Find original resume
+    const originalResume = await Resume.findOne({
+      userId,
+      title: resumeTitle.trim(),
+    });
+    if (!originalResume) {
+      return res.status(404).json({ error: "Original resume not found" });
+    }
+
+    // Tailor using AI
+    const tailoredContent = await tailorResumeWithGPT(
+      originalResume.extractedContent,
+      jobDescription.trim(),
+    );
+
+    // Determine title for new tailored resume
+    let newTitle = targetTitle?.trim() || `Tailored - ${resumeTitle.trim()}`;
+
+    // Prevent duplicate titles
+    let suffix = 1;
+    let finalTitle = newTitle;
+    while (await Resume.findOne({ userId, title: finalTitle })) {
+      finalTitle = `${newTitle} (${suffix++})`;
+      if (suffix > 10) break; // safety
+    }
+
+    // Create new tailored resume document
+    const tailoredResume = new Resume({
+      userId,
+      title: finalTitle,
+      originalFileName: `${originalResume.originalFileName} (Tailored)`,
+      mimeType: originalResume.mimeType,
+      fileUrl: null,
+      extractedContent: tailoredContent,
+      originalResumeId: originalResume._id, // optional reference
+    });
+
+    await tailoredResume.save();
+
+    return res.status(201).json({
+      message: "Resume tailored successfully",
+      resume: {
+        id: tailoredResume._id.toString(),
+        title: tailoredResume.title,
+        originalFileName: tailoredResume.originalFileName,
+        parsedName:
+          tailoredResume.extractedContent.personalInfo?.fullName ||
+          "Not detected",
+        createdAt: tailoredResume.createdAt.toISOString(),
+      },
+    });
+  } catch (err: any) {
+    console.error("[tailorResume] Error:", err?.response?.data || err.message);
+
+    if (
+      err.message.includes("No content returned") ||
+      err.message.includes("JSON")
+    ) {
+      return res.status(422).json({
+        error: "AI failed to generate valid tailored resume. Please try again.",
+      });
+    }
+
+    return res
+      .status(500)
+      .json({ error: "Server error while tailoring resume" });
+  }
+};
+
+export const deleteResume = async (
+  req: AuthenticatedRequest,
+  res: Response,
+) => {
+  try {
+    const userId = req.user?._id;
+    const resumeId = req.params.id;
+
+    if (!userId) {
+      return res.status(401).json({ error: "Authentication required" });
+    }
+
+    if (!resumeId) {
+      return res.status(400).json({ error: "Resume ID is required" });
+    }
+
+    const resume = await Resume.findOne({
+      _id: resumeId,
+      userId: userId,
+    });
+
+    if (!resume) {
+      return res.status(404).json({
+        error: "Resume not found or you do not have permission to delete it",
+      });
+    }
+
+    await Resume.deleteOne({ _id: resumeId });
+
+    return res.status(200).json({
+      message: "Resume deleted successfully",
+      deletedResumeId: resumeId,
+    });
+  } catch (error: any) {
+    console.error("[deleteResume] Error:", error);
+    return res.status(500).json({
+      error: "Server error while deleting resume",
+    });
   }
 };
