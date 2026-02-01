@@ -1,6 +1,7 @@
 import { Router } from "express";
 import { authenticate } from "../middlewares/auth.middleware";
 import {
+  deleteResume,
   getResumeByUserAndResumeId,
   getResumesByUserId,
   tailorResume,
@@ -15,5 +16,6 @@ router.get("/get-resumes", authenticate, getResumesByUserId);
 router.get("/get-resume/:id", authenticate, getResumeByUserAndResumeId);
 router.put("/update-resume/:id", authenticate, updateResumeByUserAndResumeId);
 router.post("/tailor-resume", authenticate, tailorResume);
+router.delete("/delete-resume/:id", authenticate, deleteResume);
 
 export default router;
