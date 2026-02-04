@@ -20,6 +20,7 @@
     "express": "^5.1.0",
     "jsonwebtoken": "^9.0.2",
     "mailgen": "^2.0.32",
+    "mammoth": "^1.11.0",
     "mongoose": "^8.21.1",
     "multer": "^2.0.2",
     "openai": "^6.16.0",

@@ -1,10 +1,11 @@
+import axios from "axios";
 import { Response } from "express";
 import multer, { FileFilterCallback } from "multer";
-import axios from "axios";
+import mammoth from "mammoth";
 import { PDFParse } from "pdf-parse";
 import { AuthenticatedRequest } from "../middlewares/auth.middleware";
 import { Resume } from "../models/resume.model";
-import { IResume, IResumeContent } from "../types/resume.types";
+import { IResumeContent } from "../types/resume.types";
 
 interface OpenAIChatCompletionResponse {
   id: string;
@@ -19,17 +20,42 @@ interface OpenAIChatCompletionResponse {
 
 const upload = multer({
   storage: multer.memoryStorage(),
-  limits: { fileSize: 10 * 1024 * 1024 }, // 10 MB
+  limits: { fileSize: 10 * 1024 * 1024 },
   fileFilter: (req, file, cb: FileFilterCallback) => {
-    if (file.originalname.toLowerCase().endsWith(".pdf")) {
+    const allowed = [
+      "application/pdf",
+      "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    ];
+
+    if (allowed.includes(file.mimetype)) {
       cb(null, true);
     } else {
-      cb(new Error("Only PDF files are allowed"));
+      cb(new Error("Only PDF and DOCX files are allowed"));
     }
   },
 });
 
-// Replace this with your full JSON schema prompt
+async function extractText(file: Express.Multer.File): Promise<string> {
+  // PDF
+  if (file.mimetype === "application/pdf") {
+    const parser = new PDFParse({ data: file.buffer });
+    const result = await parser.getText();
+    await parser.destroy();
+    return result.text || "";
+  }
+
+  // DOCX
+  if (
+    file.mimetype ===
+    "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+  ) {
+    const result = await mammoth.extractRawText({ buffer: file.buffer });
+    return result.value || "";
+  }
+
+  throw new Error("Unsupported file type");
+}
+
 const SYSTEM_PROMPT = `
 You are an expert resume parser. Extract and organize all relevant information from the resume text into clean, consistent JSON.
 
@@ -103,38 +129,59 @@ Required schema:
 `;
 
 // GPT parsing via Axios
-async function parseResumeWithGPT(text: string): Promise<IResumeContent> {
-  try {
-    const response = await axios.post<OpenAIChatCompletionResponse>(
-      "https://api.openai.com/v1/chat/completions",
-      {
-        model: "gpt-4o-mini",
-        messages: [
-          { role: "system", content: SYSTEM_PROMPT },
-          {
-            role: "user",
-            content: `Extract this resume:\n\n"""\n${text}\n"""`,
-          },
-        ],
-        temperature: 0.15,
-        max_tokens: 4000,
-      },
-      {
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${process.env.OPENAI_API_KEY}`,
-        },
-        timeout: 30000, // 30 seconds timeout
-      },
-    );
+export async function parseResumeWithGPT(
+  text: string,
+): Promise<IResumeContent> {
+  const url = "https://api.openai.com/v1/chat/completions";
 
-    const content = response.data?.choices?.[0]?.message?.content;
+  const payload = {
+    model: "gpt-4o-mini",
+    messages: [
+      { role: "system", content: SYSTEM_PROMPT },
+      { role: "user", content: `Extract this resume:\n\n"""\n${text}\n"""` },
+    ],
+    temperature: 0.15,
+    max_tokens: 4000,
+  };
+
+  // Use AbortController for timeout
+  const controller = new AbortController();
+  const timeoutMs = 120000; // 2 minutes
+  const timeout = setTimeout(() => controller.abort(), timeoutMs);
+
+  try {
+    const res = await fetch(url, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${process.env.OPENAI_API_KEY}`,
+      },
+      body: JSON.stringify(payload),
+      signal: controller.signal,
+    });
+
+    clearTimeout(timeout);
+
+    if (!res.ok) {
+      const errText = await res.text();
+      throw new Error(`OpenAI API error: ${res.status} ${errText}`);
+    }
+
+    const data = await res.json();
+    const content = data?.choices?.[0]?.message?.content;
+
     if (!content) throw new Error("No content returned from OpenAI");
 
     return JSON.parse(content) as IResumeContent;
   } catch (err: any) {
-    console.error("GPT parsing failed:", err?.response?.data || err.message);
+    if (err.name === "AbortError") {
+      console.error("GPT request timed out");
+    } else {
+      console.error("GPT parsing failed:", err.message || err);
+    }
     throw new Error("AI parsing failed – please try a different resume");
+  } finally {
+    clearTimeout(timeout);
   }
 }
 
@@ -152,11 +199,9 @@ export const uploadResume = [
       if (!title)
         return res.status(400).json({ error: "Resume title is required" });
       if (!req.file)
-        return res.status(400).json({ error: "PDF resume file is required" });
+        return res.status(400).json({ error: "Resume file is required" });
 
-      const parser = new PDFParse({ data: req.file.buffer });
-      const result = await parser.getText();
-      const rawText = result.text.trim();
+      const rawText = (await extractText(req.file)).trim();
 
       if (rawText.length < 50) {
         return res.status(400).json({
@@ -164,7 +209,6 @@ export const uploadResume = [
         });
       }
 
-      //GPT parsing
       console.log("Sending text to OpenAI via Axios, length:", rawText.length);
       const structuredContent = await parseResumeWithGPT(rawText);
       console.log("GPT parsing completed");
@@ -349,17 +393,65 @@ Requirements:
 - Do NOT fabricate any new experiences, skills, degrees, or achievements.
 - Preserve all original dates exactly as strings.
 - Keep descriptions concise, impactful, and achievement-oriented.
+- Tailor the experience description to match the job description
 
 Return the full tailored resume using this exact schema:
 {
-  "personalInfo": { ... },
+  "personalInfo": {
+    "fullName": string,
+    "email": string | null,
+    "phone": string | null,
+    "location": string | null,
+    "linkedin": string | null,
+    "github": string | null,
+    "portfolio": string | null,
+    "other": object
+  },
   "professionalSummary": string | null,
-  "experience": [...],
-  "education": [...],
+  "experience": [
+    {
+      "position": string,
+      "company": string,
+      "location": string | null,
+      "startDate": string | null,
+      "endDate": string | null,
+      "description": string[]
+    }
+  ],
+  "education": [
+    {
+      "degree": string,
+      "field": string | null,
+      "institution": string,
+      "location": string | null,
+      "startYear": string | null,
+      "endYear": string | null,
+      "description": string[] | null
+    }
+  ],
   "skills": string[],
-  "certifications": [...],
-  "projects": [...],
-  "languages": [...]
+  "certifications": [
+    {
+      "name": string,
+      "issuer": string | null,
+      "date": string | null,
+      "url": string | null
+    }
+  ],
+  "projects": [
+    {
+      "name": string,
+      "description": string[],
+      "technologies": string[] | null,
+      "url": string | null
+    }
+  ],
+  "languages": [
+    {
+      "name": string,
+      "proficiency": string | null
+    }
+  ]
 }
 `;
 
@@ -370,7 +462,7 @@ async function tailorResumeWithGPT(
   const response = await axios.post<OpenAIChatCompletionResponse>(
     "https://api.openai.com/v1/chat/completions",
     {
-      model: "gpt-4o-mini", // or "gpt-4o" for better quality
+      model: "gpt-4o-mini",
       messages: [
         { role: "system", content: TAILOR_SYSTEM_PROMPT },
         {
@@ -398,9 +490,6 @@ async function tailorResumeWithGPT(
   return JSON.parse(cleaned) as IResumeContent;
 }
 
-// ──────────────────────────────────────────────────────────────
-// Controller
-// ──────────────────────────────────────────────────────────────
 export const tailorResume = async (
   req: AuthenticatedRequest,
   res: Response,

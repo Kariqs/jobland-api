@@ -12,6 +12,7 @@ const PORT = process.env.PORT || 3001;
 const allowedOrigins = [
   "http://localhost:4200",
   "https://joblandsai.vercel.app",
+  "https://resume-generatorjoblandsai.vercel.app",
 ];
 
 app.use(
