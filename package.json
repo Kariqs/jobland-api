@@ -13,8 +13,9 @@
   "license": "ISC",
   "dependencies": {
     "@emailjs/nodejs": "^5.0.2",
-    "axios": "^1.13.3",
+    "axios": "^1.13.4",
     "bcryptjs": "^3.0.2",
+    "cheerio": "^1.2.0",
     "cors": "^2.8.5",
     "dotenv": "^17.2.3",
     "express": "^5.1.0",
@@ -23,15 +24,16 @@
     "mammoth": "^1.11.0",
     "mongoose": "^8.21.1",
     "multer": "^2.0.2",
-    "openai": "^6.16.0",
     "pdf-extraction": "^1.0.2",
     "pdf-parse": "^2.4.5",
+    "playwright": "^1.58.1",
     "resend": "^6.7.0",
     "uuid": "^13.0.0"
   },
   "devDependencies": {
     "@types/axios": "^0.9.36",
     "@types/bcryptjs": "^2.4.6",
+    "@types/cheerio": "^0.22.35",
     "@types/cors": "^2.8.19",
     "@types/express": "^5.0.3",
     "@types/fluent-ffmpeg": "^2.1.28",

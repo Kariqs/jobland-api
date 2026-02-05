@@ -4,6 +4,7 @@ import {
   deleteResume,
   getResumeByUserAndResumeId,
   getResumesByUserId,
+  saveTailoredResume,
   tailorResume,
   updateResumeByUserAndResumeId,
   uploadResume,
@@ -16,6 +17,7 @@ router.get("/get-resumes", authenticate, getResumesByUserId);
 router.get("/get-resume/:id", authenticate, getResumeByUserAndResumeId);
 router.put("/update-resume/:id", authenticate, updateResumeByUserAndResumeId);
 router.post("/tailor-resume", authenticate, tailorResume);
+router.post("/save-resume", authenticate, saveTailoredResume);
 router.delete("/delete-resume/:id", authenticate, deleteResume);
 
 export default router;
