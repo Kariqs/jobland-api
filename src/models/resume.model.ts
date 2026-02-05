@@ -16,9 +16,9 @@ const resumeSchema = new Schema<IResume>(
       trim: true,
       maxlength: 120,
     },
-    originalFileName: { type: String, required: true },
-    mimeType: { type: String, required: true },
-    fileUrl: { type: String, sparse: true },
+    originalFileName: { type: String, required: false },
+    mimeType: { type: String, required: false },
+    fileUrl: { type: String, required: false, sparse: true },
     extractedContent: {
       type: {
         personalInfo: { type: Object, required: true, default: {} },

@@ -1,4 +1,5 @@
 import axios from "axios";
+import * as cheerio from "cheerio";
 import { Response } from "express";
 import multer, { FileFilterCallback } from "multer";
 import mammoth from "mammoth";
@@ -6,6 +7,7 @@ import { PDFParse } from "pdf-parse";
 import { AuthenticatedRequest } from "../middlewares/auth.middleware";
 import { Resume } from "../models/resume.model";
 import { IResumeContent } from "../types/resume.types";
+import { chromium } from "playwright";
 
 interface OpenAIChatCompletionResponse {
   id: string;
@@ -265,6 +267,59 @@ export const uploadResume = [
   },
 ];
 
+export const saveTailoredResume = async (
+  req: AuthenticatedRequest,
+  res: Response,
+) => {
+  try {
+    const userId = req.user?._id;
+    const title = req.body.title?.trim();
+    const extractedContent = req.body.extractedContent;
+
+    if (!userId)
+      return res.status(401).json({ error: "Authentication required" });
+    if (!title)
+      return res.status(400).json({ error: "Resume title is required" });
+
+    if (!extractedContent) {
+      return res.status(400).json({ error: "Resume content is required" });
+    }
+
+    const resumeExists = await Resume.findOne({ title: title });
+    if (resumeExists)
+      return res.status(400).json({
+        error:
+          "Resume with this title already exists, please use another title.",
+      });
+
+    const resume = new Resume({
+      userId,
+      title,
+      originalFileName: null,
+      mimeType: null,
+      fileUrl: null,
+      extractedContent: extractedContent,
+    });
+
+    await resume.save();
+
+    res.status(201).json({
+      message: "Resume uploaded and parsed successfully",
+      resumeId: resume._id,
+    });
+  } catch (err: any) {
+    console.error("[uploadResume] Error:", err);
+
+    let errorMessage = "Server error during resume processing";
+
+    if (err.message?.includes("AI parsing failed")) {
+      errorMessage = err.message;
+    }
+
+    res.status(500).json({ error: errorMessage });
+  }
+};
+
 export const getResumesByUserId = async (
   req: AuthenticatedRequest,
   res: Response,
@@ -377,117 +432,102 @@ export const updateResumeByUserAndResumeId = async (
   }
 };
 
-const TAILOR_SYSTEM_PROMPT = `
-You are an expert professional resume tailor and career coach.
+const TAILOR_RESUME_WITH_CHANGES_PROMPT = `
+You are an expert professional resume writer and ATS optimization specialist.
 
-Task: Tailor the given resume to the job description while being 100% truthful to the original content.
+Your task is to produce an improved version of the resume that is strongly aligned with the job description — especially by enhancing the professional summary, skills, and experience bullet points.
 
-Requirements:
-- Output ONLY valid JSON. No explanations, no markdown, no extra text.
-- Follow the exact schema structure provided (do not add or remove keys).
-- Prioritize experiences, projects, and skills that match the job requirements.
-- Rephrase bullet points to include keywords and phrases from the job description naturally.
-- Reorder bullet points and experience entries so the most relevant content appears first.
-- Strengthen the professionalSummary to directly address the target role and key requirements.
-- Move less relevant content to the bottom or keep it minimal.
-- Do NOT fabricate any new experiences, skills, degrees, or achievements.
-- Preserve all original dates exactly as strings.
-- Keep descriptions concise, impactful, and achievement-oriented.
-- Tailor the experience description to match the job description
+Core rules — you MUST follow all of them:
 
-Return the full tailored resume using this exact schema:
+- Output ONLY valid JSON — no extra text, no markdown, no fences, nothing else.
+- Return ONE complete, improved resume object using the exact schema.
+- You MUST improve the skills section:
+  - Reorder skills to put the most relevant ones (matching JD keywords/requirements) at the top.
+  - Rephrase skill names where needed to better match JD terminology (e.g. "Node.js" → "Node.js (Express)").
+  - Add missing skills that are strongly implied by the experience or explicitly required in the JD.
+- You MUST improve the experience section:
+  - Rephrase existing bullets to be more achievement-oriented, concise, and keyword-rich using language from the job description.
+  - Add 1–4 new bullets per role where it logically extends existing achievements (never invent new jobs, dates, companies, or entirely new experiences).
+  - Reorder bullets within each job so the most relevant ones (matching JD keywords/requirements) appear first.
+- Strengthen the professional summary to directly target the role and include key JD keywords.
+- Do NOT fabricate new jobs, roles, companies, dates, or achievements.
+- Do NOT remove bullets or skills unless they are clearly irrelevant and add no value (very rare — prefer rephrasing instead).
+- Preserve all original dates, titles, and companies exactly as strings.
+- Produce a "changes" array that lists EVERY meaningful modification.
+
+Return EXACTLY this JSON structure:
+
 {
-  "personalInfo": {
-    "fullName": string,
-    "email": string | null,
-    "phone": string | null,
-    "location": string | null,
-    "linkedin": string | null,
-    "github": string | null,
-    "portfolio": string | null,
-    "other": object
+  "resume": {
+    "personalInfo": { ... },
+    "professionalSummary": string | null,
+    "experience": [
+      {
+        "position": string,
+        "company": string,
+        "location": string | null,
+        "startDate": string | null,
+        "endDate": string | null,
+        "description": string[]
+      }
+    ],
+    "education": [...],
+    "skills": string[],
+    "certifications": [...],
+    "projects": [...],
+    "languages": [...]
   },
-  "professionalSummary": string | null,
-  "experience": [
+  "changes": [
     {
-      "position": string,
-      "company": string,
-      "location": string | null,
-      "startDate": string | null,
-      "endDate": string | null,
-      "description": string[]
+      "id": "string (unique e.g. sum-1, exp-0-rephrase-2, exp-0-add-3, skills-reorder-1, skills-add-4)",
+      "section": "professionalSummary | experience | skills | education | certifications | projects | languages",
+      "type": "added | rephrased | reordered",
+      "experienceIndex": number | null,
+      "bulletIndex": number | null,
+      "original": string | null,
+      "new": string,
+      "reason": "short reason referencing specific JD keyword/phrase"
     }
   ],
-  "education": [
-    {
-      "degree": string,
-      "field": string | null,
-      "institution": string,
-      "location": string | null,
-      "startYear": string | null,
-      "endYear": string | null,
-      "description": string[] | null
-    }
-  ],
-  "skills": string[],
-  "certifications": [
-    {
-      "name": string,
-      "issuer": string | null,
-      "date": string | null,
-      "url": string | null
-    }
-  ],
-  "projects": [
-    {
-      "name": string,
-      "description": string[],
-      "technologies": string[] | null,
-      "url": string | null
-    }
-  ],
-  "languages": [
-    {
-      "name": string,
-      "proficiency": string | null
-    }
-  ]
+  "summary": "One sentence overview of changes (e.g. 'Rephrased 9 bullets, added 5 new bullets, reordered experience, updated skills with 4 new additions')"
 }
 `;
 
-async function tailorResumeWithGPT(
+async function generateTailoredResumeWithChanges(
   originalContent: IResumeContent,
   jobDescription: string,
-): Promise<IResumeContent> {
+): Promise<any> {
   const response = await axios.post<OpenAIChatCompletionResponse>(
     "https://api.openai.com/v1/chat/completions",
     {
-      model: "gpt-4o-mini",
+      model: "gpt-4o-mini", // or gpt-4o if you want higher quality
       messages: [
-        { role: "system", content: TAILOR_SYSTEM_PROMPT },
+        { role: "system", content: TAILOR_RESUME_WITH_CHANGES_PROMPT },
         {
           role: "user",
-          content: `Original Resume (JSON):\n${JSON.stringify(originalContent, null, 2)}\n\nJob Description:\n"""\n${jobDescription}\n"""\n\nTailor the resume to this job. Return only the JSON.`,
+          content: `Original resume JSON:\n${JSON.stringify(originalContent, null, 2)}\n\nJob description:\n"""\n${jobDescription}\n"""\n\nReturn improved resume + changes log as JSON.`,
         },
       ],
-      temperature: 0.1,
-      max_tokens: 6000,
+      temperature: 0.15,
+      max_tokens: 4000,
     },
     {
       headers: {
         "Content-Type": "application/json",
         Authorization: `Bearer ${process.env.OPENAI_API_KEY}`,
       },
-      timeout: 45000,
+      timeout: 120000,
     },
   );
 
-  const content = response.data.choices[0]?.message?.content?.trim();
-  if (!content) throw new Error("No content returned from OpenAI");
+  let content = response.data.choices[0]?.message?.content?.trim() || "";
+  content = content.replace(/```json|```/g, "").trim();
 
-  // Clean possible markdown/code fences
-  const cleaned = content.replace(/```json|```/g, "").trim();
-  return JSON.parse(cleaned) as IResumeContent;
+  try {
+    return JSON.parse(content);
+  } catch (e) {
+    throw new Error("Failed to parse AI response");
+  }
 }
 
 export const tailorResume = async (
@@ -503,77 +543,40 @@ export const tailorResume = async (
     if (!resumeTitle?.trim())
       return res.status(400).json({ error: "resumeTitle is required" });
     if (!jobDescription?.trim() || jobDescription.trim().length < 50) {
-      return res.status(400).json({
-        error: "A meaningful job description is required (min 50 characters)",
-      });
+      return res
+        .status(400)
+        .json({ error: "Meaningful job description required (min 50 chars)" });
     }
 
-    // Find original resume
     const originalResume = await Resume.findOne({
       userId,
       title: resumeTitle.trim(),
     });
-    if (!originalResume) {
+    if (!originalResume)
       return res.status(404).json({ error: "Original resume not found" });
-    }
 
-    // Tailor using AI
-    const tailoredContent = await tailorResumeWithGPT(
+    const aiResult = await generateTailoredResumeWithChanges(
       originalResume.extractedContent,
       jobDescription.trim(),
     );
 
-    // Determine title for new tailored resume
-    let newTitle = targetTitle?.trim() || `Tailored - ${resumeTitle.trim()}`;
-
-    // Prevent duplicate titles
-    let suffix = 1;
-    let finalTitle = newTitle;
-    while (await Resume.findOne({ userId, title: finalTitle })) {
-      finalTitle = `${newTitle} (${suffix++})`;
-      if (suffix > 10) break; // safety
-    }
-
-    // Create new tailored resume document
-    const tailoredResume = new Resume({
-      userId,
-      title: finalTitle,
-      originalFileName: `${originalResume.originalFileName} (Tailored)`,
-      mimeType: originalResume.mimeType,
-      fileUrl: null,
-      extractedContent: tailoredContent,
-      originalResumeId: originalResume._id, // optional reference
-    });
-
-    await tailoredResume.save();
-
-    return res.status(201).json({
-      message: "Resume tailored successfully",
-      resume: {
-        id: tailoredResume._id.toString(),
-        title: tailoredResume.title,
-        originalFileName: tailoredResume.originalFileName,
-        parsedName:
-          tailoredResume.extractedContent.personalInfo?.fullName ||
-          "Not detected",
-        createdAt: tailoredResume.createdAt.toISOString(),
+    return res.status(200).json({
+      message: "Tailored resume preview with changes generated",
+      preview: {
+        originalResumeId: originalResume._id.toString(),
+        targetTitle: targetTitle?.trim() || `Tailored - ${resumeTitle.trim()}`,
+        resume: aiResult.resume,
+        changes: aiResult.changes || [],
+        summary: aiResult.summary || "AI improvements applied",
       },
     });
   } catch (err: any) {
-    console.error("[tailorResume] Error:", err?.response?.data || err.message);
-
-    if (
-      err.message.includes("No content returned") ||
-      err.message.includes("JSON")
-    ) {
-      return res.status(422).json({
-        error: "AI failed to generate valid tailored resume. Please try again.",
-      });
-    }
-
-    return res
-      .status(500)
-      .json({ error: "Server error while tailoring resume" });
+    console.error("[tailorResume]", err);
+    const msg =
+      err.message.includes("parse") || err.message.includes("JSON")
+        ? "AI failed to produce valid output. Please try again."
+        : "Server error while tailoring resume";
+    return res.status(500).json({ error: msg });
   }
 };
 
@@ -617,3 +620,7 @@ export const deleteResume = async (
     });
   }
 };
+
+
+
+
