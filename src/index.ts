@@ -13,6 +13,7 @@ const allowedOrigins = [
   "http://localhost:4200",
   "https://joblandsai.vercel.app",
   "https://resume-generatorjoblandsai.vercel.app",
+  "https://waylle.vercel.app",
 ];
 
 app.use(
